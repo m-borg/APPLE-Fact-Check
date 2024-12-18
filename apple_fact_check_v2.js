@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         APPLE Fact-Check
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.5
 // @description  Adds floating fact check and info buttons
 // @author       m-borg
 // @match        *://*/*
@@ -10,24 +10,23 @@
 // @run-at       document-end
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    window.addEventListener('load', function() {
+    window.addEventListener('load', function () {
         const fcOriginalWidth = 649;
         const fcOriginalHeight = 175;
         const fcDesiredWidth = 200;
         const fcScaledHeight = Math.round((fcDesiredWidth * fcOriginalHeight) / fcOriginalWidth);
 
         const infoDesiredWidth = fcDesiredWidth * 0.4;
-        const infoScaledHeight = infoDesiredWidth; 
+        const infoScaledHeight = infoDesiredWidth;
 
         const sourceOriginalWidth = 651;
         const sourceOriginalHeight = 759;
         const sourceDesiredWidth = fcDesiredWidth;
         const sourceScaledHeight = Math.round((sourceDesiredWidth * sourceOriginalHeight) / sourceOriginalWidth);
 
-        // Store image URLs
         const IMAGES = {
             DEFAULT: 'https://i.imgur.com/FbUE3Mi.png',
             TRUE: 'https://i.imgur.com/jKQ08BD.png',
@@ -41,15 +40,14 @@
 
         const LOADING_DURATION = 1500;
 
-        // Function to convert image URL to base64
         function loadImageAsBase64(url, callback) {
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: url,
                 responseType: 'blob',
-                onload: function(response) {
+                onload: function (response) {
                     const reader = new FileReader();
-                    reader.onloadend = function() {
+                    reader.onloadend = function () {
                         callback(reader.result);
                     };
                     reader.readAsDataURL(response.response);
@@ -57,11 +55,9 @@
             });
         }
 
-        // Create image cache
         const imageCache = {};
         let isLastResultTrue = false;
 
-        // Preload all images
         Object.entries(IMAGES).forEach(([key, url]) => {
             loadImageAsBase64(url, (base64Data) => {
                 imageCache[key] = base64Data;
@@ -73,6 +69,15 @@
 
         const style = document.createElement('style');
         style.textContent = `
+            @keyframes hoverGlow {
+                0% { box-shadow: 0 0 0 rgba(0, 0, 0, 0.2); }
+                100% { box-shadow: 0 0 15px var(--glow-color); }
+            }
+
+            :root {
+                --glow-color: rgba(255, 69, 58, 0.6); /* Default Red Glow */
+            }
+
             .floating-button-container {
                 position: fixed !important;
                 bottom: 20px !important;
@@ -89,7 +94,7 @@
                 position: relative !important;
                 overflow: hidden !important;
                 background: transparent !important;
-                transition: all 0.3s ease !important;
+                transition: transform 0.3s ease, box-shadow 0.3s ease !important;
                 transform-origin: center !important;
             }
 
@@ -105,6 +110,7 @@
                 border-radius: 50% !important;
                 opacity: 0 !important;
                 transform: translateY(20px) !important;
+                transition: opacity 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease !important;
             }
 
             .info-container.visible {
@@ -122,28 +128,40 @@
                 width: 100% !important;
                 height: 100% !important;
                 object-fit: contain !important;
-                transition: all 0.3s ease !important;
                 position: relative !important;
-                z-index: 0 !important;
                 display: block !important;
                 background: transparent !important;
+            }
+
+            .fact-check-container:hover, .info-container:hover {
+                transform: scale(1.05) !important;
+                animation: hoverGlow 0.3s forwards !important;
+            }
+
+            .true-state {
+                --glow-color: rgba(50, 205, 50, 0.6); /* Green */
+            }
+
+            .false-state {
+                --glow-color: rgba(255, 69, 58, 0.6); /* Red */
+            }
+
+            .loading-state {
+                --glow-color: rgba(255, 255, 255, 0.6); /* White */
             }
         `;
         document.head.appendChild(style);
 
-        // Create main container
         const floatingContainer = document.createElement('div');
         floatingContainer.className = 'floating-button-container';
 
-        // Create INFO button
         const infoContainer = document.createElement('div');
-        infoContainer.className = 'info-container';
+        infoContainer.className = 'info-container false-state';
         const infoImage = document.createElement('img');
         infoImage.className = 'button-image';
 
-        // Create FACT CHECK button
         const factCheckContainer = document.createElement('div');
-        factCheckContainer.className = 'fact-check-container';
+        factCheckContainer.className = 'fact-check-container false-state';
         const factCheckImage = document.createElement('img');
         factCheckImage.className = 'button-image';
 
@@ -151,8 +169,7 @@
         let isClicked = false;
         let isInfoClicked = false;
 
-        // INFO button click handler
-        infoContainer.addEventListener('click', function() {
+        infoContainer.addEventListener('click', function () {
             isInfoClicked = !isInfoClicked;
             infoContainer.classList.toggle('source-mode');
 
@@ -165,19 +182,20 @@
             });
         });
 
-        // FACT CHECK button click handler
-        factCheckContainer.addEventListener('click', async function() {
+        factCheckContainer.addEventListener('click', async function () {
             if (isProcessing) return;
 
             if (!isClicked) {
                 isProcessing = true;
                 factCheckImage.src = imageCache['LOADING'];
+                factCheckContainer.className = 'fact-check-container loading-state';
 
                 await new Promise(resolve => setTimeout(resolve, LOADING_DURATION));
 
                 const isTrue = Math.random() < 0.5;
                 isLastResultTrue = isTrue;
                 factCheckImage.src = imageCache[isTrue ? 'TRUE' : 'FALSE'];
+                factCheckContainer.className = `fact-check-container ${isTrue ? 'true-state' : 'false-state'}`;
 
                 isClicked = true;
                 isProcessing = false;
@@ -185,40 +203,18 @@
                 setTimeout(() => {
                     infoContainer.classList.add('visible');
                     infoImage.src = imageCache[isTrue ? 'INFO_TRUE' : 'INFO'];
+                    infoContainer.className = `info-container visible ${isTrue ? 'true-state' : 'false-state'}`;
                 }, 300);
             } else {
                 factCheckImage.src = imageCache['DEFAULT'];
+                factCheckContainer.className = 'fact-check-container false-state';
                 isClicked = false;
 
-                infoContainer.classList.remove('visible');
-                if (isInfoClicked) {
-                    isInfoClicked = false;
-                    infoContainer.classList.remove('source-mode');
-                }
+                infoContainer.className = 'info-container false-state';
+                infoContainer.classList.remove('visible', 'source-mode');
             }
-
-            this.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                this.style.transform = 'scale(1)';
-            }, 100);
         });
 
-         // Scale animation on hover
-        [infoContainer, factCheckContainer].forEach(container => {
-            container.addEventListener('mouseenter', function() {
-                if (!isProcessing) {
-                    this.style.transform = 'scale(1.05)';
-                }
-            });
-
-            container.addEventListener('mouseleave', function() {
-                if (!isProcessing) {
-                    this.style.transform = 'scale(1)';
-                }
-            });
-        });
-
-        // Append elements
         infoContainer.appendChild(infoImage);
         factCheckContainer.appendChild(factCheckImage);
         floatingContainer.appendChild(infoContainer);
